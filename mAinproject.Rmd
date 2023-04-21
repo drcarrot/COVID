@@ -1,0 +1,631 @@
+---
+title: "Covid"
+output: html_notebook
+---
+
+#Load data and packages 
+```{r}
+suppressPackageStartupMessages(lapply(c('plyr','ggfortify', 'viridis', 'ggplot2','RColorBrewer', 'reshape2', 'phyloseq', 'vegan', 'cowplot', 'dplyr', 'gplots', 'hillR', 'betapart',  'tidyverse', 'Carrotworks', 'Maaslin2', 'brmstools'), require,character.only=TRUE)) #add as necessary
+
+setwd("/Users/sj40zura/Dropbox/In Progress/Reuben/COVID/OUTPUTS/")
+
+
+meta=read.table("C:/Users/sj40zura/Dropbox (iDiv)/In Progress/Reuben/COVID/OUTPUTS/meta.txt", row.names=1, header=TRUE, sep="\t")
+
+sample_names(merged_all)=gsub("_1","",sample_names(merged_all))
+row.names(merged_all@otu_table)=gsub("_1","",row.names(merged_all@otu_table))
+row.names(meta)=gsub("_1","",row.names(meta))
+
+#align metadata to phyloseq object
+meta=meta[match(sample_names(merged_all), row.names(meta)),]
+merged_all@sam_data=sample_data(meta)
+
+#remove technical controls etc
+merged_all=prune_samples(!(is.na(merged_all@sam_data$Sample)), merged_all)
+merged_all=prune_samples(!(is.na(merged_all@sam_data$COVID)), merged_all)
+merged_all=prune_samples(merged_all@sam_data$COVID!=0, merged_all)
+saveRDS(merged_all, "merged_all.rds")
+
+#Save! Should have 1494 samples
+merged_all=readRDS("merged_all.rds")
+
+#This code sources separate phyloseq .rds files and merges them into a single phyloseq. Made by DrCarrot herself
+phylos <- list.files(pattern="merged.rds", recursive=TRUE)
+merged_all= NULL
+for (p in 1:length(phylos)) {
+   dat <- readRDS(phylos[p])
+   merged_all <- merge_phyloseq(merged_all, dat)
+   rm(dat)
+}
+
+
+```
+
+
+Plot sequencing qualities- 
+code is from Dr. Carrot Herself, files are outputted by Steph's pipeline
+Remy: not relevant for you
+```{r}
+setwd("/Users/sj40zura/Dropbox/In Progress/Reuben/COVID/round2/")
+files2 <- list.files(pattern="tracking_table.txt", recursive=TRUE)
+tracking_all2= NULL
+for (f in 1:length(files2)) {
+   dat <- read.table(files2[f], header=T, sep="\t", na.strings="")[,1:6]
+   dat$Study=gsub("tracking_table.txt","",files2[f])
+   tracking_all2 <- rbind(tracking_all2, dat)
+}
+
+setwd("/Users/sj40zura/Dropbox/In Progress/Reuben/COVID/OUTPUTS/")
+files <- list.files(pattern="tracking_table.txt", recursive=TRUE)
+tracking_all= NULL
+for (f in 1:length(files)) {
+   dat <- read.table(files[f], header=T, sep="\t", na.strings="")[,1:6]
+   dat$Study=gsub("tracking_table.txt","",files[f])
+   tracking_all <- rbind(tracking_all, dat)
+}
+
+tracking_all=rbind(tracking_all,tracking_all2)
+
+write.table(tracking_all, "tracking_all.txt")
+
+
+tracking_all$ratio=tracking_all$Filtered.Reads/tracking_all$Original.Reads
+tracking_all$ratio2=tracking_all$Non.chimeric.Reads/tracking_all$Original.Reads
+tracking_all$ratio3=tracking_all$pseq/tracking_all$Original.Reads
+
+
+ggplot(tracking_all, aes(x=Study, y=ratio, group=Study))+
+  geom_boxplot()+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.x=element_blank())+
+  ylim(0,1)+
+  ylab("Reads conserved after Filtering")
+  ggsave("Reads conserved after Filtering.pdf")
+
+ggplot(tracking_all, aes(x=Study, y=ratio2, group=Study))+
+  geom_boxplot()+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.x=element_blank())+
+  ylim(0,1)+
+  ylab("Reads conserved after Chimera Checking")
+ggsave("Reads conserved after Chimera Checking.pdf")
+
+ggplot(tracking_all, aes(x=Study, y=ratio3, group=Study))+
+  geom_boxplot()+
+  ylab("Proportion Bacterial, high-quality reads")+
+  ylim(0,1)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ggsave("Proportion Bacterial, high-quality reads.pdf")
+```
+Plot reads from the dadasnake object
+Remy: not relevant for you
+```{r}
+merged_all@sam_data$ratio=merged_all@sam_data$Filtered.Reads/merged_all@sam_data$Original.Reads
+merged_all@sam_data$ratio2=merged_all@sam_data$Non.chimeric.Reads/merged_all@sam_data$Original.Reads
+merged_all@sam_data$ratio3=merged_all@sam_data$pseq/merged_all@sam_data$Original.Reads
+
+
+Allreads=ggplot(merged_all@sam_data, aes(x=Study.Accession, y=ratio, group=Study.Accession))+
+  geom_boxplot(fill="#9595f9")+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),axis.title.x=element_blank())+
+  ylim(0.5,1)+
+  ylab("Reads conserved after Filtering")
+
+
+Non.chimeric=ggplot(merged_all@sam_data, aes(x=Study.Accession, y=ratio2, group=Study.Accession))+
+  geom_boxplot(fill="#5959c6")+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),axis.title.x=element_blank())+
+  ylim(0,1)+
+  ylab("Reads conserved after Chimera Checking")
+
+
+tabled=ggplot(merged_all@sam_data, aes(x=Study.Accession, y=ratio3, group=Study.Accession))+
+  geom_boxplot(fill="#333370")+
+  ylab("Proportion Bacterial, high-quality reads")+
+  ylim(0,1)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+cowplot::plot_grid(Allreads, Non.chimeric, tabled, nrow=3, labels=c("a", "b", "c"))
+
+```
+
+
+#rarefy and plot quality
+rarefaction results n 1426 samples preserved
+```{r}
+rarefied=rarefy_even_depth(merged_all, rngseed = 1, sample.size = 2000)
+rarefied@sam_data$ID=interaction(rarefied@sam_data$Study.Accession, rarefied@sam_data$Region)
+
+saveRDS(rarefied, "rarefied.rds")
+
+
+filtered=ggplot(rarefied@sam_data, aes(x=Study.Accession, y=Filtered.Reads/Original.Reads, group=Study.Accession))+
+   geom_boxplot(fill="deepskyblue4")+
+   theme_classic()+
+   theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.x=element_blank())+
+   ylim(0,1)+
+   ylab("Filtered reads")+
+   theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+ggsave("Reads conserved after Filtering.jpeg")
+   
+
+checked=ggplot(rarefied@sam_data, aes(x=Study.Accession, y=Non.chimeric.Reads/Original.Reads, group=Study.Accession))+
+   geom_boxplot(fill="deepskyblue3")+
+   theme_classic()+
+   theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.x=element_blank())+
+   ylim(0,1)+
+   ylab("Chimera checked reads")+
+   theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+ggsave("Reads conserved after Chimera check.jpeg")
+
+tabled=ggplot(rarefied@sam_data, aes(x=Study.Accession, y=pseq/Original.Reads, group=Study.Accession))+
+   geom_boxplot(fill="deepskyblue2")+
+   theme_classic()+
+   theme(axis.text.x = element_text(angle = 90, hjust = 1),axis.title.x=element_blank())+
+   ylim(0,1)+
+   ylab("Tabled reads")
+ggsave("reads tabled.jpeg")
+
+cowplot::plot_grid(filtered, checked, tabled, nrow = 3,labels =c("a", "b", "c"))
+ggsave("reads tabled.pdf")
+
+
+```
+#Sample map
+```{r}
+world=map_data("world")
+
+rarefied@sam_data$region=rarefied@sam_data$Country
+
+Counts=as.data.frame(rarefied@sam_data) %>%  
+    group_by(region) %>%        
+    tally()
+   
+countries=inner_join(world, Counts, by = "region")
+
+Samples=as.data.frame(rarefied@sam_data) 
+
+ggplot() +  
+  geom_polygon(data = world, fill = "darkgray", mapping = aes(x = long, y = lat, group = group))+
+  geom_polygon(data = countries, aes(x = long, y = lat, group = group), fill="deepskyblue3")+
+  geom_point(data = Samples, aes(x = long, y = lat, color=Sample_type), color="yellow", size=3)
+```
+
+#DB RDA
+```{r}
+#This function does significance testing on a 3-way variance paritioning. from https://github.com/jgmv/comecol/
+test_vp3 <- function(vp, cdm = NULL) {
+  # retrieve tables from vp
+  y  <- eval(parse(text = vp$call[2]))
+  X1 <- as.matrix(eval(parse(text = vp$call[3])))
+  X2 <- as.matrix(eval(parse(text = vp$call[4])))
+  X3 <- as.matrix(eval(parse(text = vp$call[5])))
+
+  # create an output table
+  tab <- rbind(vp$part[[1]][1:4], vp$part[[2]][1:4], vp$part[[3]][1:4])
+  tab$percVar <- tab[, "Adj.R.square"] * 100
+  tab$P <- rep(NA, nrow(tab))
+  #vegan::showvarparts(3)
+
+  if(class(y) == "dist") {
+    tab[7, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X1 + X2 + X3))$Pr[1]
+    tab[1, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X1))$Pr[1]
+    tab[2, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X2))$Pr[1]
+    tab[3, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X3))$Pr[1]
+    tab[4, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X1 + X2))$Pr[1]
+    tab[5, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X1 + X3))$Pr[1]
+    tab[6, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X2 + X3))$Pr[1]
+    tab[8, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X1 + Condition(X2) +
+      Condition(X3)))$Pr[1]
+    tab[9, "P"]  <- vegan::anova.cca(vegan::dbrda(y ~ X2 + Condition(X1) +
+      Condition(X3)))$Pr[1]
+    tab[10, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X3 + Condition(X1) +
+      Condition(X2)))$Pr[1]
+    tab[16, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X1 + Condition(X3)))$Pr[1]
+    tab[17, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X1 + Condition(X2)))$Pr[1]
+    tab[18, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X2 + Condition(X3)))$Pr[1]
+    tab[19, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X2 + Condition(X1)))$Pr[1]
+    tab[20, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X3 + Condition(X1)))$Pr[1]
+    tab[21, "P"] <- vegan::anova.cca(vegan::dbrda(y ~ X3 + Condition(X2)))$Pr[1]
+  } else {
+    tab[7, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X1 + X2 + X3))$Pr[1]
+    tab[1, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X1))$Pr[1]
+    tab[2, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X2))$Pr[1]
+    tab[3, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X3))$Pr[1]
+    tab[4, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X1 + X2))$Pr[1]
+    tab[5, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X1 + X3))$Pr[1]
+    tab[6, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X2 + X3))$Pr[1]
+    tab[8, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X1 + Condition(X2) + Condition(X3)))$Pr[1]
+    tab[9, "P"]  <- vegan::anova.cca(vegan::rda(y ~ X2 + Condition(X1) + Condition(X3)))$Pr[1]
+    tab[10, "P"] <- vegan::anova.cca(vegan::rda(y ~ X3 + Condition(X1) + Condition(X2)))$Pr[1]
+    tab[16, "P"] <- vegan::anova.cca(vegan::rda(y ~ X1 + Condition(X3)))$Pr[1]
+    tab[17, "P"] <- vegan::anova.cca(vegan::rda(y ~ X1 + Condition(X2)))$Pr[1]
+    tab[18, "P"] <- vegan::anova.cca(vegan::rda(y ~ X2 + Condition(X3)))$Pr[1]
+    tab[19, "P"] <- vegan::anova.cca(vegan::rda(y ~ X2 + Condition(X1)))$Pr[1]
+    tab[20, "P"] <- vegan::anova.cca(vegan::rda(y ~ X3 + Condition(X1)))$Pr[1]
+    tab[21, "P"] <- vegan::anova.cca(vegan::rda(y ~ X3 + Condition(X2)))$Pr[1]
+  }
+  return(tab)
+}
+
+
+mainvarp <- varpart (vegdist(rarefied@otu_table@.Data), rarefied@sam_data$COVID, rarefied@sam_data$Region, rarefied@sam_data$Study.Accession)
+
+tested=test_vp3(mainvarp)
+tested
+
+plot (mainvarp, digits = 2, Xnames = c('COVID','REGION', 'STUDY'), bg=c("deepskyblue1", "deepskyblue2", "deepskyblue3"))
+```
+
+#Distance matrix 
+```{r}
+dissector <- function(physeq, distm, var1, var2) {
+  # Args:
+  # - physeq: phyloseq object
+  # - distm: a dist class object
+  # - var1: a category within which to compare samples. For example, if var1= "Time", the distance between samples from the samples of the same time point will be measured.
+  if (physeq@otu_table@taxa_are_rows=="FALSE"){
+    dist.mat=vegdist((otu_table(physeq)), method="bray")
+  } else{
+    dist.mat=vegdist(t(otu_table(physeq)), method="bray")
+  }
+  A <- attr(dist.mat, "Size")
+  B <- if (is.null(attr(dist.mat, "Labels"))) sequence(A) else attr(dist.mat, "Labels")
+  if (isTRUE(attr(dist.mat, "Diag"))) attr(dist.mat, "Diag") <- FALSE
+  if (isTRUE(attr(dist.mat, "Upper"))) attr(dist.mat, "Upper") <- FALSE
+  d=data.frame(
+    var1.names = B[unlist(lapply(sequence(A)[-1], function(x) x:A))],
+    var2.names = rep(B[-length(B)], (length(B)-1):1),
+    value = as.vector(dist.mat))
+  v.1=as.data.frame(sample_data(physeq)[[var1]], row.names(sample_data(physeq)))
+  colnames(v.1)=var1
+  v.2=as.data.frame(sample_data(physeq)[[var2]], row.names(sample_data(physeq)))
+  d[,var1]=v.1[,var1][match(d$var1.names, row.names(v.1))]
+  if (var1==var2){
+    colnames(v.2)=paste(var2,".")
+    d[,paste(var2,".")]=v.2[,paste(var2,".")][match(d$var2.names, row.names(v.2))]
+  } else{
+    colnames(v.2)=var2
+    d[,var2]=v.2[,var2][match(d$var2.names, row.names(v.2))]
+  }
+  d$Total="total"
+  return(d)
+}
+
+d=dissector(rarefied, "bray", "COVID", "COVID")
+d$Study.Accession=rarefied@sam_data$Study.Accession[match(d$var1.names,row.names(rarefied@sam_data))]
+d$Study.Accession.=rarefied@sam_data$Study.Accession[match(d$var2.names,row.names(rarefied@sam_data))]
+d$Region=rarefied@sam_data$Region[match(d$var1.names,row.names(rarefied@sam_data))]
+d$Region.=rarefied@sam_data$Region[match(d$var2.names,row.names(rarefied@sam_data))]
+
+write.table(d, "dissected.txt")
+d=read.table("dissected.txt")
+
+```
+
+#Dispersion: 
+Covid definitely affects the microbiomes variability, but this effect is regional: in the oral and upper respiratory tracts, variance increases after infection, and in the gut microbiome the opposite happens
+```{r}
+require(brms)
+#subset to within study replicates
+e=d[which(d$Study.Accession==d$Study.Accession. &
+            d$Region==d$Region. &
+            d$COVID==d$`COVID .`&
+            d$COVID!= "Recovered"),]
+
+ggplot(e, aes(x=COVID, y=value, color=Study.Accession))+
+  geom_jitter(alpha=0.5)+
+  facet_wrap(~Region)
+
+
+
+#fit.brm.dispersion=brm(bf(value~COVID+(1|Study.Accession/Region)), data = e,cores = parallel::detectCores()-1) 
+#saveRDS(fit.brm.dispersion, "fit.brm.dispersions.rds")
+
+fit.brm.dispersion=readRDS("fit.brm.dispersions.rds")
+
+dispersion.est=fitted(fit.brm.dispersion, re_formula = NA) %>% 
+  as_tibble() %>%     
+  bind_cols(fit.brm.dispersion$data %>% 
+              as_tibble())%>%
+  distinct(COVID, Region, Estimate, Q2.5, Q97.5)
+
+fit.brm.dispersion$fit
+
+dispersion.plot <- ggplot() +
+  # the data
+  geom_jitter(data = fit.brm.dispersion$data,alpha=0.1,
+             aes(x =COVID, y = value, group = Study.Accession,color=Study.Accession),
+             size = 1) +
+  # expected values for each environment from the model
+  geom_point(data = dispersion.est,
+             aes(x = COVID, y = Estimate),
+             size = 2, color='darkblue') +
+  geom_linerange(data =dispersion.est,
+                 aes(x = COVID, ymin = Q2.5, ymax = Q97.5), color="darkblue")+ 
+    theme_classic() +
+  theme(axis.title = element_text(size = 10))+
+ theme(axis.title.x=element_blank())+
+   theme(legend.position = "none")+
+  scale_color_brewer(palette="Spectral")+
+  facet_wrap(~Region)
+
+dispersion.plot
+ggsave("dispersion.plot.pdf") 
+
+(hypothesis(fit.brm.dispersion, "Intercept+COVIDYes>Intercept"))
+```
+
+
+#Are there general effects of covid on microbiome richness?
+```{r}
+#Hill q0--Richness
+rarefied@sam_data$Richness=specnumber(rarefied@otu_table)
+#Hill q1--Effective Shannon
+rarefied@sam_data$Shannon=hillR::hill_taxa(rarefied@otu_table@.Data, q=1)
+#Hill q2-- Inverse Simpson
+rarefied@sam_data$Simpson=hillR::hill_taxa(rarefied@otu_table@.Data, q=2)
+
+alphas=as.data.frame(rarefied@sam_data[which(rarefied@sam_data$COVID!=0&rarefied@sam_data$COVID!="Recovered"),])
+
+write.table(alphas, "alphas.txt")
+
+fit.brm.richness=brm(bf(Richness~COVID+(1|Study.Accession/Region)), data = alphas,family = student(),cores = parallel::detectCores()-1) 
+
+saveRDS(fit.brm.richness, "fit.brm.richness.RDS")
+
+richness.est=fitted(fit.brm.richness, re_formula = NA) %>% 
+  as_tibble() %>%     
+  bind_cols(fit.brm.richness$data %>% 
+              as_tibble())%>%
+  distinct(COVID, Estimate, Q2.5, Q97.5)
+
+fit.brm.richness$fit
+
+Rich.plot <- ggplot() +
+  # the data
+  geom_jitter(data = fit.brm.richness$data,
+             aes(x =COVID, y = Richness, group = Study.Accession,color=Study.Accession),
+             size = 1) +
+  # expected values for each environment from the model
+  geom_point(data = richness.est,
+             aes(x = COVID, y = Estimate),
+             size = 2, color='darkblue') +
+  geom_linerange(data =richness.est,
+                 aes(x = COVID, ymin = Q2.5, ymax = Q97.5), color="darkblue")+ 
+    theme_classic() +
+  theme(axis.title = element_text(size = 10))+
+ theme(axis.title.x=element_blank())+
+   theme(legend.position = "none")+
+  scale_color_brewer(palette="Set3")
+Rich.plot 
+
+
+(hypothesis(fit.brm.richness, "Intercept+COVIDYes>Intercept"))
+```
+
+#Is there an effect of region on the effect of covid on microbiome richness? 
+
+Remy: need help here with this kind of model. By region I mean gut or respiratory
+```{r}
+fit.brm.richness2=brm(bf(Richness~COVID*Region+(1|Study.Accession)), data = alphas,family = student(),cores = parallel::detectCores()-1) 
+
+saveRDS(fit.brm.richness2, "fit.brm.richness2.RDS")
+
+richness.est2=fitted(fit.brm.richness2, re_formula = NA) %>% 
+  as_tibble() %>%     
+  bind_cols(fit.brm.richness2$data %>% 
+              as_tibble())%>%
+  distinct(COVID,Region, Estimate, Q2.5, Q97.5)
+
+fit.brm.richness2$fit
+
+Rich.plot2 <- ggplot() +
+  # the data
+  geom_jitter(data = fit.brm.richness2$data,
+             aes(x =COVID, y = Richness, group = Study.Accession,color=Study.Accession),
+             size = 1) +
+  # expected values for each environment from the model
+  geom_point(data = richness.est2,
+             aes(x = COVID, y = Estimate),
+             size = 2, color='darkblue') +
+  geom_linerange(data =richness.est2,
+                 aes(x = COVID, ymin = Q2.5, ymax = Q97.5), color="darkblue")+ 
+    theme_classic() +
+  theme(axis.title = element_text(size = 10))+
+ theme(axis.title.x=element_blank())+
+   theme(legend.position = "none")
+        scale_color_brewer(palette="Set3")
+Rich.plot2 
+
+
+(hypothesis(fit.brm.richness2, "(Intercept+COVIDYes)/Intercept<(Intercept+COVIDYes:RegionOralDURT)+Intercept/(RegionOralDURT+Intercept)"))
+```
+#Are there general effects of covid on microbiome diversity--simpson?
+```{r}
+
+fit.brm.simpson=brm(bf(Simpson~COVID+(1|Study.Accession/Region)), data = alphas,family = lognormal(),cores = parallel::detectCores()-1) 
+
+saveRDS(fit.brm.simpson, "fit.brm.simpson.RDS")
+
+simpson.est=fitted(fit.brm.simpson, re_formula = NA) %>% 
+  as_tibble() %>%     
+  bind_cols(fit.brm.simpson$data %>% 
+              as_tibble())%>%
+  distinct(COVID, Estimate, Q2.5, Q97.5)
+
+fit.brm.simpson$fit
+
+Simpson.plot <- ggplot() +
+  # the data
+  geom_jitter(data = fit.brm.simpson$data,
+             aes(x =COVID, y = Simpson, group = Study.Accession,color=Study.Accession),
+             size = 1) +
+  # expected values for each environment from the model
+  geom_point(data = simpson.est,
+             aes(x = COVID, y = Estimate),
+             size = 2, color='darkblue') +
+  geom_linerange(data =simpson.est,
+                 aes(x = COVID, ymin = Q2.5, ymax = Q97.5), color="darkblue")+ 
+    theme_classic() +
+  theme(axis.title = element_text(size = 10))+
+ theme(axis.title.x=element_blank())+
+   theme(legend.position = "none")+
+  scale_color_brewer(palette="Set3")
+Simpson.plot
+
+(hypothesis(fit.brm.simpson, "Intercept+COVIDYes>Intercept"))
+```
+
+#Is there an effect of region on the effect of covid on microbiome richness? 
+```{r}
+fit.brm.simpson2=brm(bf(Simpson~COVID*Region+(1|Study.Accession)), data = alphas,family = lognormal(),cores = parallel::detectCores()-1) 
+
+saveRDS(fit.brm.simpson2, "fit.brm.simpson2.RDS")
+
+simpson2.est=fitted(fit.brm.simpson2, re_formula = NA) %>% 
+  as_tibble() %>%     
+  bind_cols(fit.brm.simpson2$data %>% 
+              as_tibble())%>%
+  distinct(COVID, Estimate, Q2.5, Q97.5)
+
+fit.brm.simpson2$fit
+
+Simpson2.plot <- ggplot() +
+  # the data
+  geom_jitter(data = fit.brm.simpson2$data,
+             aes(x =COVID, y = Simpson, group = Study.Accession,color=Study.Accession),
+             size = 1) +
+  # expected values for each environment from the model
+  geom_point(data = simpson2.est,
+             aes(x = COVID, y = Estimate),
+             size = 2, color='darkblue') +
+  geom_linerange(data =simpson2.est,
+                 aes(x = COVID, ymin = Q2.5, ymax = Q97.5), color="darkblue")+ 
+    theme_classic() +
+  theme(axis.title = element_text(size = 10))+
+ theme(axis.title.x=element_blank())+
+   theme(legend.position = "none")+
+  scale_color_brewer(palette="Set3")
+Simpson2.plot
+
+(hypothesis(fit.brm.simpson2, "(Intercept+COVIDYes)/Intercept<(Intercept+COVIDYes:RegionOralDURT)+Intercept/(RegionOralDURT+Intercept)"))
+
+```
+#metadata table
+```{r}
+a=as.data.frame((rarefied@sam_data)) %>%
+group_by(Study.Accession)%>%
+summarize(samples=n(),
+Original.Reads=mean(Original.Reads),
+Filtered.reads=mean(Filtered.Reads),
+Final.reads=mean(pseq),
+Article=first(Article),
+Authors=first(Authors),
+DOI=first(DOI),
+Region=unique(Sample),
+Method=first(Method),
+Extraction.Kit=first(Kit),
+Primers=first(Primers),
+Country=first(Country),
+Mean.richness=mean(Richness))
+```
+#split by region
+```{r}
+Oral=subset_samples(rarefied, rarefied@sam_data$Region!="Gut")
+
+Oral.g=tax_glom(Oral, "Genus")
+taxa_names(Oral.g)=paste0((Oral.g@tax_table)[,6],1:ntaxa(Oral.g))
+
+Gut=subset_samples(rarefied, rarefied@sam_data$Region=="Gut")
+Gut.g=tax_glom(Gut, "Genus")
+taxa_names(Gut.g)=paste0((Gut.g@tax_table)[,6],1:ntaxa(Gut.g))
+```
+
+#Differential abundance with Maaslin2
+```{r}
+rarefied.=rarefied
+rarefied.=subset_taxa(rarefied., Genus="Chloroplast")
+taxa_names(rarefied.)=paste0("ASV", 1:ntaxa(rarefied.))
+rarefied.=tax_glom(rarefied., "Genus")
+rarefied.=prune_samples(rarefied.@sam_data$COVID!="Recovered", rarefied.)
+
+Oral=subset_samples(rarefied., rarefied.@sam_data$Region!="Gut")
+
+Gut=subset_samples(rarefied., rarefied.@sam_data$Region=="Gut")
+
+fit_data_Gut = Maaslin2(input_data = as.matrix(as.data.frame(otu_table(Gut))),
+                             input_metadata = data.frame(Gut@sam_data),
+                             output = "Maaslin.Covid.Gut",
+                             fixed_effects = c("COVID"),
+                             random_effects = c("Study.Accession","Sample"),
+                             min_prevalence = 0.2)
+
+fit_data_Oral = Maaslin2(input_data = as.matrix(as.data.frame(otu_table(Oral))),
+                             input_metadata = data.frame(Oral@sam_data),
+                             output = "Maaslin.Covid.Oral",
+                             fixed_effects = c("COVID"),
+                             random_effects = "Study.Accession",
+                             min_prevalence = 0.2)
+
+
+
+```
+#Process Maaslin2 results
+```{r}
+require(pheatmap)
+
+tax=as.data.frame(as.matrix(rarefied.@tax_table))
+Gutsig=read.table("Maaslin.Covid.Gut/significant_results.tsv", header=TRUE)
+Gutsig=Gutsig[which(Gutsig$pval<0.01),]
+Gutsig$Phylum=tax$Phylum[match(Gutsig$feature, row.names(tax))]
+Gutsig$Class=tax$Class[match(Gutsig$feature, row.names(tax))]
+Gutsig$Order=tax$Order[match(Gutsig$feature, row.names(tax))]
+Gutsig$Family=tax$Family[match(Gutsig$feature, row.names(tax))]
+Gutsig$Genus=tax$Genus[match(Gutsig$feature, row.names(tax))]
+
+Gut.=subset_taxa(Gut, taxa_names(Gut) %in% Gutsig$feature)
+
+df.gut=as.matrix(t(Gut.@otu_table@.Data))
+colnames(df.gut)=Gut.@sam_data$COVID
+df.gut=df.gut/2000
+df.gut=df.gut[ , order(colnames(df.gut))]
+
+quantile_breaks <- function(xs, n = 10) {
+    breaks <- quantile(xs, probs = seq(0, 1, length.out = n))
+    breaks[!duplicated(breaks)]
+}
+
+mat_breaks <- quantile_breaks(df.gut, n = 11)
+
+pheatmap((df.gut), 
+         cluster_cols = FALSE, 
+         annotation_row = as.data.frame(Gut.@tax_table[,2]),
+         labels_row = (Gut.@tax_table[,6]),
+         color=viridis(length(mat_breaks) - 1),
+         breaks=mat_breaks, 
+         gaps_col = sum(colnames(df.gut)=="No"))
+
+Oralsig=read.table("Maaslin.Covid.Oral/significant_results.tsv", header=TRUE)
+Oralsig=Oralsig[which(Oralsig$pval<0.01),]
+Oralsig$Phylum=tax$Phylum[match(Oralsig$feature, row.names(tax))]
+Oralsig$Class=tax$Class[match(Oralsig$feature, row.names(tax))]
+Oralsig$Order=tax$Order[match(Oralsig$feature, row.names(tax))]
+Oralsig$Family=tax$Family[match(Oralsig$feature, row.names(tax))]
+Oralsig$Genus=tax$Genus[match(Oralsig$feature, row.names(tax))]
+
+Oral.=subset_taxa(Oral, taxa_names(Oral) %in% Oralsig$feature)
+ggplot(Oralsig, aes(x=reorder(Genus,coef), y=coef, fill=Phylum))+
+  geom_bar(stat="identity")+
+  scale_color_viridis(discrete = TRUE)+theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
